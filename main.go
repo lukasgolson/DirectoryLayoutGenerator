@@ -17,9 +17,11 @@ type Layout struct {
 }
 
 type Level struct {
-	Name  string     `(@Ident | @Number)?`
-	Count *string    `( ":" @Number )?`
-	List  *ValueList `( ">"? @@ )?`
+	Name  string  `(@Ident | @Number)?`
+	Count *string `( ":" @Number )?`
+	// Just parse the bracketed list if it's present at this level,
+	// but NOT also parse another level in the same "line".
+	List *ValueList `(@@)?`
 }
 
 type ValueList struct {
