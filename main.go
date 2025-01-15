@@ -17,15 +17,18 @@ type Layout struct {
 }
 
 type Level struct {
-	Name  string  `(@Ident | @Number)?`
-	Count *string `( ":" @Number )?`
-	// Just parse the bracketed list if it's present at this level,
-	// but NOT also parse another level in the same "line".
-	List *ValueList `(@@)?`
+	Name  string     `(@Ident | @Number)?`
+	Count *string    `( ":" @Number )?`
+	List  *ValueList `( @@ )?`
+}
+
+type Value struct {
+	Name  string  `(@Ident | @Number)` // e.g. "lol" or "foo" or "123"
+	Count *string `( ":" @Number )?`   // e.g. ":2" if present
 }
 
 type ValueList struct {
-	Values []string `"[" (@Ident | @Number) ( "," (@Ident | @Number) )* "]"`
+	Values []Value `"[" @@ ( "," @@ )* "]"`
 }
 
 type DirectoryTree struct {
@@ -65,14 +68,6 @@ func main() {
 			if err != nil {
 				log.Fatalf("Error parsing layout: %v", err)
 			}
-			for i, lvl := range parsedLayout.Levels {
-				log.Printf("Level %d: Name=%q, Count=%v, List=%v",
-					i,
-					lvl.Name,
-					lvl.Count,
-					lvl.List,
-				)
-			}
 
 			tree := buildDirectoryTree(parsedLayout.Levels, 0)
 			if err := createDirectoryTree(basePath, tree); err != nil {
@@ -104,7 +99,19 @@ func buildDirectoryTree(levels []*Level, levelIndex int) *DirectoryTree {
 	switch {
 	case level.List != nil:
 
-		names = level.List.Values
+		for _, v := range level.List.Values {
+			if v.Count != nil {
+				count, err := strconv.Atoi(*v.Count)
+				if err != nil {
+					log.Fatalf("Invalid count in array: %v", err)
+				}
+				for i := 1; i <= count; i++ {
+					names = append(names, fmt.Sprintf("%s %d", v.Name, i))
+				}
+			} else {
+				names = append(names, v.Name)
+			}
+		}
 
 	case level.Count != nil:
 		// e.g. "three:2" => ["three 1", "three 2"]
@@ -117,7 +124,6 @@ func buildDirectoryTree(levels []*Level, levelIndex int) *DirectoryTree {
 		}
 
 	case level.Name != "":
-		// e.g. "three" => ["three"]
 		names = []string{level.Name}
 	}
 
