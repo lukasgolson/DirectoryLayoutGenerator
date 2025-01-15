@@ -12,30 +12,38 @@ import (
 	"strings"
 )
 
+// Layout is the top-level: a sequence of Parts separated by ">".
 type Layout struct {
-	Levels []*Level `@@ ( ">" @@ )*`
+	Parts []*Part `@@ ( ">" @@ )*`
 }
 
+// A "Part" can be either a bracketed ValueList or a single Level.
+// We put List first, so that if the input starts with "[", it goes here:
+type Part struct {
+	List *ValueList `  @@ 
+                     | `
+	Level *Level `  @@ `
+}
+
+// A normal Level, e.g. "lol:2", "lukas", or just "42".
+// Removed the "?" so we don't parse empty strings as a valid Level.
 type Level struct {
-	Name  string     `(@Ident | @Number)?`
-	Count *string    `( ":" @Number )?`
-	List  *ValueList `( @@ )?`
+	Name  string  `(@Ident | @Number)` // <-- no question mark
+	Count *string `( ":" @Number )?`
 }
 
-type Value struct {
-	Name  string  `(@Ident | @Number)` // e.g. "lol" or "foo" or "123"
-	Count *string `( ":" @Number )?`   // e.g. ":2" if present
-}
-
+// A bracketed list "[ Layout ( , Layout )* ]"
 type ValueList struct {
-	Values []Value `"[" @@ ( "," @@ )* "]"`
+	Layouts []Layout `"[" @@ ( "," @@ )* "]"`
 }
 
+// DirectoryTree is our in-memory representation of the directories to create.
 type DirectoryTree struct {
 	Name     string
 	Children []*DirectoryTree
 }
 
+// Our lexer:
 var layoutLexer = lexer.MustSimple([]lexer.SimpleRule{
 	{"Ident", `[a-zA-Z_][a-zA-Z0-9_]*`},
 	{"Number", `[0-9]+`},
@@ -47,6 +55,7 @@ var layoutLexer = lexer.MustSimple([]lexer.SimpleRule{
 	{"Whitespace", `\s+`},
 })
 
+// Build the parser with the updated grammar
 var layoutParser = participle.MustBuild[Layout](
 	participle.Lexer(layoutLexer),
 	participle.Elide("Whitespace"),
@@ -64,12 +73,16 @@ func main() {
 				log.Fatal("Error: No layout string provided. Use the --layout flag to specify a layout.")
 			}
 
+			// Parse the layout string
 			parsedLayout, err := layoutParser.ParseString("", input)
 			if err != nil {
 				log.Fatalf("Error parsing layout: %v", err)
 			}
 
-			tree := buildDirectoryTree(parsedLayout.Levels, 0)
+			// Build an in-memory directory tree
+			tree := buildLayoutTree(*parsedLayout)
+
+			// Create directories on disk
 			if err := createDirectoryTree(basePath, tree); err != nil {
 				log.Fatalf("Error creating directories: %v", err)
 			}
@@ -78,8 +91,12 @@ func main() {
 		},
 	}
 
-	rootCmd.Flags().StringVarP(&input, "layout", "l", "", "Layout string describing the directory structure (e.g., 'site:5 > tree:10')")
-	rootCmd.Flags().StringVarP(&basePath, "output", "o", ".", "Base path where the directories will be created")
+	rootCmd.Flags().StringVarP(&input, "layout", "l", "",
+		`Layout string describing the directory structure (e.g., "[lol:2 > lukas, lmfao] > test")`,
+	)
+	rootCmd.Flags().StringVarP(&basePath, "output", "o", ".",
+		"Base path where the directories will be created",
+	)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
@@ -87,73 +104,80 @@ func main() {
 	}
 }
 
-func buildDirectoryTree(levels []*Level, levelIndex int) *DirectoryTree {
-	if levelIndex >= len(levels) {
-		return nil
+// buildLayoutTree creates a DirectoryTree from a Layout *recursively*,
+// interpreting each ">" as a deeper nesting.
+func buildLayoutTree(layout Layout) *DirectoryTree {
+	// If there are no parts at all, return an empty container
+	if len(layout.Parts) == 0 {
+		return &DirectoryTree{Name: "", Children: nil}
 	}
 
-	level := levels[levelIndex]
-	var names []string
+	// 1) Build directories for the *first* part
+	firstPart := layout.Parts[0]
+	topNodes := buildPart(firstPart)
 
-	// Collect folder names for THIS level
-	switch {
-	case level.List != nil:
+	// 2) If there are more parts, recursively build the subtree for them
+	if len(layout.Parts) > 1 {
+		rest := Layout{Parts: layout.Parts[1:]}
+		restTree := buildLayoutTree(rest)
 
-		for _, v := range level.List.Values {
-			if v.Count != nil {
-				count, err := strconv.Atoi(*v.Count)
-				if err != nil {
-					log.Fatalf("Invalid count in array: %v", err)
-				}
-				for i := 1; i <= count; i++ {
-					names = append(names, fmt.Sprintf("%s %d", v.Name, i))
-				}
-			} else {
-				names = append(names, v.Name)
-			}
+		// Attach restTree's children as subdirectories of each node from topNodes
+		for _, node := range topNodes {
+			node.Children = append(node.Children, restTree.Children...)
 		}
-
-	case level.Count != nil:
-		// e.g. "three:2" => ["three 1", "three 2"]
-		count, err := strconv.Atoi(*level.Count)
-		if err != nil {
-			log.Fatalf("Invalid count: %v", err)
-		}
-		for i := 1; i <= count; i++ {
-			names = append(names, fmt.Sprintf("%s %d", level.Name, i))
-		}
-
-	case level.Name != "":
-		names = []string{level.Name}
 	}
 
-	// A "container" node to hold children
-	container := &DirectoryTree{
-		Name:     "",
-		Children: []*DirectoryTree{},
-	}
-
-	// For each name, create a child node and attach subTree's children
-	for _, n := range names {
-		child := &DirectoryTree{
-			Name:     n,
-			Children: []*DirectoryTree{},
-		}
-
-		// Recursively build next level
-		subTree := buildDirectoryTree(levels, levelIndex+1)
-		if subTree != nil {
-			// DO NOT overwrite subTree.Name!  Just attach its children.
-			child.Children = subTree.Children
-		}
-
-		// Add child to the container
-		container.Children = append(container.Children, child)
-	}
-
-	return container
+	// 3) Return a container whose direct children are these topNodes
+	return &DirectoryTree{Name: "", Children: topNodes}
 }
 
+// buildPart handles a single Part (which can be a Level or a bracketed ValueList).
+func buildPart(part *Part) []*DirectoryTree {
+	if part.Level != nil {
+		// E.g. "lol:2"
+		return expandLevel(part.Level)
+	}
+	if part.List != nil {
+		// Bracketed lists, e.g. "[lol:2 > lukas, lmfao]"
+		// Each comma-separated element inside is itself a Layout
+		// We'll build each sub-Layout and then combine them as siblings.
+		var result []*DirectoryTree
+		for _, subLayout := range part.List.Layouts {
+			subTree := buildLayoutTree(subLayout)
+			// subTree is an empty container with children
+			result = append(result, subTree.Children...)
+		}
+		return result
+	}
+	// Should never happen if grammar is correct
+	return nil
+}
+
+// expandLevel returns 1 or more DirectoryTree nodes for "Name(:Count)?"
+func expandLevel(l *Level) []*DirectoryTree {
+	if l.Count != nil {
+		c, err := strconv.Atoi(*l.Count)
+		if err != nil {
+			log.Fatalf("Invalid count in level %q: %v", l.Name, err)
+		}
+		var nodes []*DirectoryTree
+		for i := 1; i <= c; i++ {
+			nodes = append(nodes, &DirectoryTree{
+				Name:     fmt.Sprintf("%s %d", l.Name, i),
+				Children: nil,
+			})
+		}
+		return nodes
+	}
+
+	// If no count, just a single directory
+	return []*DirectoryTree{{
+		Name:     l.Name,
+		Children: nil,
+	}}
+}
+
+// Recursively create the directories on disk
 func createDirectoryTree(basePath string, tree *DirectoryTree) error {
 	if tree == nil {
 		return nil
@@ -171,6 +195,5 @@ func createDirectoryTree(basePath string, tree *DirectoryTree) error {
 			return err
 		}
 	}
-
 	return nil
 }
