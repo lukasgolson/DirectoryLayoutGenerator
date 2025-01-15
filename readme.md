@@ -29,7 +29,9 @@ dirlayout --layout "<DSL_STRING>" --output "<OUTPUT_DIRECTORY>"
 - `--layout` (`-l`): A string describing the directory structure in DSL format.
 - `--output` (`-o`): (Optional) The base directory where the layout will be created. Defaults to the current directory (`.`).
 
-### Example
+---
+
+## Example Usage
 
 ```bash
 dirlayout --layout "site:3 > tree:5 > branch:North,South" --output "/tmp"
@@ -55,24 +57,24 @@ The Directory Structure Language (DSL) allows you to define nested folder layout
 ### Syntax
 
 - **Basic Structure**: `name[:count]`
-  - `name`: Base name for directories.
-  - `count` (optional): Number of directories to create with sequential numbering.
-    - Example: `site:3` creates `site 1`, `site 2`, `site 3`.
+    - `name`: Base name for directories.
+    - `count` (optional): Number of directories to create with sequential numbering.
+        - Example: `site:3` creates `site 1`, `site 2`, `site 3`.
 
 - **Nesting**: Use `>` to define subdirectories.
-  - Example: `site:3 > tree:5` creates 3 `site` directories, each with 5 `tree` subdirectories.
+    - Example: `site:3 > tree:5` creates 3 `site` directories, each with 5 `tree` subdirectories.
 
 - **Static Lists**: Use `:` with comma-separated names for explicit subdirectories.
-  - Example: `branch:North,South` creates `branch North` and `branch South`.
+    - Example: `branch:North,South` creates `branch North` and `branch South`.
 
 - **Combining Features**: Combine counts and static lists for complex hierarchies.
-  - Example: `site:3 > tree:5 > branch:North,South` creates:
-    ```
-    site 1/tree 1/branch North
-    site 1/tree 1/branch South
-    site 1/tree 2/branch North
-    ...
-    ```
+    - Example: `site:3 > tree:5 > branch:North,South` creates:
+      ```
+      site 1/tree 1/branch North
+      site 1/tree 1/branch South
+      site 1/tree 2/branch North
+      ...
+      ```
 
 ### Examples
 
@@ -100,16 +102,16 @@ The Directory Structure Language (DSL) allows you to define nested folder layout
    /company/Finance/team 3/
    ```
 
-3. **Multi-Level Nesting**:
+3. **Arrays**:
    ```bash
-   dirlayout --layout "site:3 > tree:4 > branch:North,South,East" --output "/tmp"
+   dirlayout --layout "site:3 > tree:4 > [North,South,East]" --output "/tmp"
    ```
    Creates:
    ```
-   /tmp/site 1/tree 1/branch North/
-   /tmp/site 1/tree 1/branch South/
+   /tmp/site 1/tree 1/North/
+   /tmp/site 1/tree 1/South/
    ...
-   /tmp/site 3/tree 4/branch East/
+   /tmp/site 3/tree 4/East/
    ```
 
 ---

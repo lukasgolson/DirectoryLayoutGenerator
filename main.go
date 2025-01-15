@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 type Layout struct {
@@ -16,9 +17,13 @@ type Layout struct {
 }
 
 type Level struct {
-	Name   string   `@Ident`
-	Count  *string  `( ":" @Number )?`
-	Values []string `( ":" @Ident ( "," @Ident )* )?`
+	Name  string     `(@Ident | @Number)?`
+	Count *string    `( ":" @Number )?`
+	List  *ValueList `( ">"? @@ )?`
+}
+
+type ValueList struct {
+	Values []string `"[" (@Ident | @Number) ( "," (@Ident | @Number) )* "]"`
 }
 
 var layoutLexer = lexer.MustSimple([]lexer.SimpleRule{
@@ -27,6 +32,8 @@ var layoutLexer = lexer.MustSimple([]lexer.SimpleRule{
 	{"Colon", `:`},
 	{"Comma", `,`},
 	{"GreaterThan", `>`},
+	{"OpenBracket", `\[`},
+	{"CloseBracket", `\]`},
 	{"Whitespace", `\s+`},
 })
 
@@ -102,28 +109,43 @@ func createDirectories(basePath string, levels []*Level, levelIndex int) error {
 	level := levels[levelIndex]
 	var names []string
 
-	if level.Count != nil {
-		count, err := strconv.Atoi(*level.Count) // Convert *string to int
+	// Handle directory naming based on count or static lists
+	if level.List != nil {
+		names = level.List.Values
+	} else if level.Count != nil {
+		// Parse count and generate numbered names
+		count, err := strconv.Atoi(*level.Count)
 		if err != nil {
 			return fmt.Errorf("invalid count: %v", err)
 		}
 		for i := 1; i <= count; i++ {
 			names = append(names, fmt.Sprintf("%s %d", level.Name, i))
 		}
-	} else if len(level.Values) > 0 {
-		names = level.Values
-	} else {
+	} else if level.Name != "" {
+		// Default to using the level name if no count or list is provided
 		names = []string{level.Name}
 	}
 
+	// Always create the current directory level, even if it has a ValueList
+	currentBasePath := basePath
+	if level.Name != "" {
+		currentBasePath = filepath.Join(basePath, strings.TrimSpace(level.Name))
+		if err := os.MkdirAll(currentBasePath, 0755); err != nil {
+			return fmt.Errorf("failed to create directory %s: %v", currentBasePath, err)
+		}
+	}
+
+	// Create subdirectories and recurse for nested levels
 	for _, name := range names {
-		fullPath := filepath.Join(basePath, name)
+		fullPath := filepath.Join(currentBasePath, strings.TrimSpace(name))
 		if err := os.MkdirAll(fullPath, 0755); err != nil {
 			return fmt.Errorf("failed to create directory %s: %v", fullPath, err)
 		}
+		// Recurse into the next level
 		if err := createDirectories(fullPath, levels, levelIndex+1); err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
