@@ -42,7 +42,29 @@ func main() {
 	rootCmd := &cobra.Command{
 		Use:   "dirlayout",
 		Short: "Generate directory layouts using a simple syntax",
-		Long:  `dirlayout is a CLI tool for generating complex directory structures using a simple custom domain-specific language called the Directory Structure Language (creative, I know).".`,
+		Long: `dirlayout is a CLI tool for generating complex directory structures 
+using a custom domain-specific language called the Directory Structure Language (creative, I know).
+
+Basic Syntax:
+1. Directories:
+   - Use 'name[:count]', where:
+     - 'name' is the base name for directories.
+     - 'count' (optional) specifies the number of directories to create with that name.
+       If 'count' is omitted, a single directory will be created.
+     - Example: 'site:5' creates 5 directories named "site".
+
+2. Nesting:
+   - Represent nesting using the '>' symbol.
+   - Example: 'site:5 > tree:10' creates 5 directories named "site",
+     each containing 10 directories named "tree".
+
+3. Static Lists:
+   - Use square brackets '[]' to provide static lists of directory names.
+   - Example: 'site:5 > tree:10 > [a, b, c]' creates:
+     - 5 directories named "site", each containing:
+     - 10 directories named "tree", each containing:
+     - Directories named "a", "b", and "c".`,
+
 		Run: func(cmd *cobra.Command, args []string) {
 			if input == "" {
 				log.Fatal("Error: No layout string provided. Use the --layout flag to specify a layout.")
