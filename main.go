@@ -12,32 +12,25 @@ import (
 	"strings"
 )
 
-// Layout is the top-level: a sequence of Parts separated by ">".
 type Layout struct {
 	Parts []*Part `@@ ( ">" @@ )*`
 }
 
-// A "Part" can be either a bracketed ValueList or a single Level.
-// We put List first, so that if the input starts with "[", it goes here:
 type Part struct {
 	List *ValueList `  @@ 
                      | `
 	Level *Level `  @@ `
 }
 
-// A normal Level, e.g. "lol:2", "lukas", or just "42".
-// Removed the "?" so we don't parse empty strings as a valid Level.
 type Level struct {
 	Name  string  `(@Ident | @Number)` // <-- no question mark
 	Count *string `( ":" @Number )?`
 }
 
-// A bracketed list "[ Layout ( , Layout )* ]"
 type ValueList struct {
 	Layouts []Layout `"[" @@ ( "," @@ )* "]"`
 }
 
-// DirectoryTree is our in-memory representation of the directories to create.
 type DirectoryTree struct {
 	Name     string
 	Children []*DirectoryTree
@@ -56,7 +49,7 @@ var layoutLexer = lexer.MustSimple([]lexer.SimpleRule{
 })
 
 // Build the parser with the updated grammar
-var layoutParser = participle.MustBuild[Layout](
+var LayoutParser = participle.MustBuild[Layout](
 	participle.Lexer(layoutLexer),
 	participle.Elide("Whitespace"),
 )
@@ -73,14 +66,12 @@ func main() {
 				log.Fatal("Error: No layout string provided. Use the --layout flag to specify a layout.")
 			}
 
-			// Parse the layout string
-			parsedLayout, err := layoutParser.ParseString("", input)
+			// Build an in-memory directory tree
+			tree, err := ParseAndBuildDirectoryTree(input)
+
 			if err != nil {
 				log.Fatalf("Error parsing layout: %v", err)
 			}
-
-			// Build an in-memory directory tree
-			tree := buildLayoutTree(*parsedLayout)
 
 			// Create directories on disk
 			if err := createDirectoryTree(basePath, tree); err != nil {
@@ -102,6 +93,19 @@ func main() {
 		fmt.Println(err)
 		os.Exit(1)
 	}
+}
+
+func ParseAndBuildDirectoryTree(input string) (*DirectoryTree, error) {
+	// 1) Parse the input into a Layout structure
+	layout, err := LayoutParser.ParseString("", input)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2) Build the directory tree
+	tree := buildLayoutTree(*layout)
+
+	return tree, nil
 }
 
 // buildLayoutTree creates a DirectoryTree from a Layout *recursively*,
