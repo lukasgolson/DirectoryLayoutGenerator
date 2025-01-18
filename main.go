@@ -108,55 +108,6 @@ func ParseAndBuildDirectoryTree(input string) (*DirectoryTree, error) {
 	return tree, nil
 }
 
-// buildLayoutTree creates a DirectoryTree from a Layout *recursively*,
-// interpreting each ">" as a deeper nesting.
-func buildLayoutTree(layout Layout) *DirectoryTree {
-	// If there are no parts at all, return an empty container
-	if len(layout.Parts) == 0 {
-		return &DirectoryTree{Name: "", Children: nil}
-	}
-
-	// 1) Build directories for the *first* part
-	firstPart := layout.Parts[0]
-	topNodes := buildPart(firstPart)
-
-	// 2) If there are more parts, recursively build the subtree for them
-	if len(layout.Parts) > 1 {
-		rest := Layout{Parts: layout.Parts[1:]}
-		restTree := buildLayoutTree(rest)
-
-		// Attach restTree's children as subdirectories of each node from topNodes
-		for _, node := range topNodes {
-			node.Children = append(node.Children, restTree.Children...)
-		}
-	}
-
-	// 3) Return a container whose direct children are these topNodes
-	return &DirectoryTree{Name: "", Children: topNodes}
-}
-
-// buildPart handles a single Part (which can be a Level or a bracketed ValueList).
-func buildPart(part *Part) []*DirectoryTree {
-	if part.Level != nil {
-		// E.g. "lol:2"
-		return expandLevel(part.Level)
-	}
-	if part.List != nil {
-		// Bracketed lists, e.g. "[lol:2 > lukas, lmfao]"
-		// Each comma-separated element inside is itself a Layout
-		// We'll build each sub-Layout and then combine them as siblings.
-		var result []*DirectoryTree
-		for _, subLayout := range part.List.Layouts {
-			subTree := buildLayoutTree(subLayout)
-			// subTree is an empty container with children
-			result = append(result, subTree.Children...)
-		}
-		return result
-	}
-	// Should never happen if grammar is correct
-	return nil
-}
-
 // expandLevel returns 1 or more DirectoryTree nodes for "Name(:Count)?"
 func expandLevel(l *Level) []*DirectoryTree {
 	if l.Count != nil {
@@ -179,6 +130,76 @@ func expandLevel(l *Level) []*DirectoryTree {
 		Name:     l.Name,
 		Children: nil,
 	}}
+}
+
+// buildLayoutTree creates a DirectoryTree from a Layout *recursively*,
+// interpreting each ">" as a deeper nesting.
+func buildLayoutTree(layout Layout) *DirectoryTree {
+	if len(layout.Parts) == 0 {
+		return &DirectoryTree{Name: "", Children: nil}
+	}
+
+	// Build directories for the first part.
+	firstPart := layout.Parts[0]
+	topNodes := buildPart(firstPart)
+
+	// If there are more parts, recursively build the subtree for them.
+	if len(layout.Parts) > 1 {
+		rest := Layout{Parts: layout.Parts[1:]}
+		restTree := buildLayoutTree(rest)
+
+		// Attach restTree's children to every leaf node in topNodes.
+		for _, node := range topNodes {
+			attachToLeaves(node, restTree.Children)
+		}
+	}
+
+	return &DirectoryTree{Name: "", Children: topNodes}
+}
+
+// buildPart handles a single Part (which can be a Level or a bracketed ValueList).
+func buildPart(part *Part) []*DirectoryTree {
+	if part.Level != nil {
+		// E.g., "lol:2"
+		return expandLevel(part.Level)
+	}
+	if part.List != nil {
+		// Bracketed lists, e.g., "[lukas > test2, test3]"
+		// Each comma-separated element inside is itself a Layout.
+		// We'll build each sub-Layout and then combine them as siblings.
+		var result []*DirectoryTree
+		for _, subLayout := range part.List.Layouts {
+			// Each subLayout is treated as its own top-level tree
+			subTree := buildLayoutTree(subLayout)
+			result = append(result, subTree.Children...)
+		}
+		return result
+	}
+	// Should never happen if grammar is correct
+	return nil
+}
+
+// attachToLeaves recursively finds all leaf nodes in the tree and attaches children to them.
+func attachToLeaves(tree *DirectoryTree, children []*DirectoryTree) {
+	if len(tree.Children) == 0 {
+		tree.Children = append(tree.Children, cloneTreeList(children)...)
+	} else {
+		for _, child := range tree.Children {
+			attachToLeaves(child, children)
+		}
+	}
+}
+
+// cloneTreeList creates a deep copy of the children list to avoid circular references.
+func cloneTreeList(children []*DirectoryTree) []*DirectoryTree {
+	var cloned []*DirectoryTree
+	for _, child := range children {
+		cloned = append(cloned, &DirectoryTree{
+			Name:     child.Name,
+			Children: cloneTreeList(child.Children), // Recursively clone children.
+		})
+	}
+	return cloned
 }
 
 // Recursively create the directories on disk
