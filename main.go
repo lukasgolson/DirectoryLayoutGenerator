@@ -191,25 +191,22 @@ func expandLevel(l *Level) []*DirectoryTree {
 		count := *l.Count
 		var nodes []*DirectoryTree
 
-		// Handle letter ranges (e.g., "a-f")
-		if len(count) == 1 && count[0] >= 'a' && count[0] <= 'z' {
-			for char := 'a'; char <= rune(count[0]); char++ {
+		// Handle letter ranges (e.g., "a-f" or "A-F")
+		if len(count) == 1 && ((count[0] >= 'a' && count[0] <= 'z') || (count[0] >= 'A' && count[0] <= 'Z')) {
+			var start, end rune
+			if count[0] >= 'a' && count[0] <= 'z' {
+				start, end = 'a', rune(count[0])
+			} else {
+				start, end = 'A', rune(count[0])
+			}
+
+			for char := start; char <= end; char++ {
 				nodes = append(nodes, &DirectoryTree{
 					Name:     fmt.Sprintf("%s %c", name, char),
 					Children: nil,
 				})
 			}
 			return nodes
-		}
-
-		// handle letter ranges (e.g., "A-F")
-		if len(count) == 1 && count[0] >= 'A' && count[0] <= 'Z' {
-			for char := 'A'; char <= rune(count[0]); char++ {
-				nodes = append(nodes, &DirectoryTree{
-					Name:     fmt.Sprintf("%s %c", name, char),
-					Children: nil,
-				})
-			}
 		}
 
 		// Handle numeric ranges
