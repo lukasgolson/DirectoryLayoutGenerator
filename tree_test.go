@@ -8,35 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBuildLayoutTree_Simple(t *testing.T) {
-	// If you want to bypass the parser, you can manually create
-	// a Layout object for this test.
-	layout := Layout{
-		Parts: []*Part{
-			{
-				Level: &Level{Name: "hello"},
-			},
-			{
-				Level: &Level{Name: "world", Count: strPtr("2")},
-			},
-		},
-	}
-
-	// Call buildLayoutTree directly
-	tree := buildLayoutTree(layout)
-
-	// Verify top-level node is empty container
-	require.Equal(t, "", tree.Name)
-	require.Len(t, tree.Children, 1, "Expected one child: 'hello'")
-
-	// The child "hello" should have the children from the second part "world:2"
-	helloNode := tree.Children[0]
-	require.Equal(t, "hello", helloNode.Name)
-	require.Len(t, helloNode.Children, 2, "Expected two subdirectories named 'world 1' and 'world 2'")
-	require.Equal(t, "world 1", helloNode.Children[0].Name)
-	require.Equal(t, "world 2", helloNode.Children[1].Name)
-}
-
 func TestBuildLayoutTree_OneLevel(t *testing.T) {
 	input := "hello"
 

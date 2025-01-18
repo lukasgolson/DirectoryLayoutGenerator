@@ -23,8 +23,8 @@ type Part struct {
 }
 
 type Level struct {
-	Name  string  `(@Ident | @Number)` // <-- no question mark
-	Count *string `( ":" @Number )?`
+	Name  []string `(@Letter)+`                 // Directory name is now a sequence of letters
+	Count *string  `(":" (@Number | @Letter))?` // Optional colon followed by a number or letter
 }
 
 type ValueList struct {
@@ -38,15 +38,50 @@ type DirectoryTree struct {
 
 // Our lexer:
 var layoutLexer = lexer.MustSimple([]lexer.SimpleRule{
-	{"Ident", `[a-zA-Z_][a-zA-Z0-9_]*`},
-	{"Number", `[0-9]+`},
-	{"Colon", `:`},
-	{"Comma", `,`},
-	{"GreaterThan", `>`},
-	{"OpenBracket", `\[`},
-	{"CloseBracket", `\]`},
-	{"Whitespace", `\s+`},
+	{"Letter", `[a-zA-Z]`}, // Single letters (used for both names and ranges)
+	{"Colon", `:`},         // Colon by itself
+	{"Number", `[0-9]+`},   // Numbers
+	{"Comma", `,`},         // Comma separator
+	{"GreaterThan", `>`},   // Greater-than symbol
+	{"OpenBracket", `\[`},  // Opening bracket
+	{"CloseBracket", `\]`}, // Closing bracket
+	{"Whitespace", `\s+`},  // Whitespace
 })
+
+func prettyPrintLayout(layout *Layout, indent string) {
+	if layout == nil {
+		fmt.Println(indent + "nil")
+		return
+	}
+
+	fmt.Println(indent + "Layout:")
+	for i, part := range layout.Parts {
+		fmt.Printf("%s  Part[%d]:\n", indent, i)
+		prettyPrintPart(part, indent+"    ")
+	}
+}
+
+func prettyPrintPart(part *Part, indent string) {
+	if part == nil {
+		fmt.Println(indent + "nil")
+		return
+	}
+
+	if part.List != nil {
+		fmt.Println(indent + "List:")
+		for i, subLayout := range part.List.Layouts {
+			fmt.Printf("%s  SubLayout[%d]:\n", indent, i)
+			prettyPrintLayout(&subLayout, indent+"    ")
+		}
+	}
+	if part.Level != nil {
+		fmt.Printf("%sLevel: Name=%s", indent, part.Level.Name)
+		if part.Level.Count != nil {
+			fmt.Printf(", Count=%s", *part.Level.Count)
+		}
+		fmt.Println()
+	}
+}
 
 // Build the parser with the updated grammar
 var LayoutParser = participle.MustBuild[Layout](
@@ -57,6 +92,8 @@ var LayoutParser = participle.MustBuild[Layout](
 func main() {
 	var input string
 	var basePath string
+	var debugTokens bool
+	var debugParsing bool
 
 	rootCmd := &cobra.Command{
 		Use:   "dirlayout",
@@ -66,9 +103,19 @@ func main() {
 				log.Fatal("Error: No layout string provided. Use the --layout flag to specify a layout.")
 			}
 
+			// Debugging: Lexer
+			if debugTokens {
+				debugLexer(input)
+			}
+
+			// Debugging: Parser
+			if debugParsing {
+				debugParser(input)
+				return
+			}
+
 			// Build an in-memory directory tree
 			tree, err := ParseAndBuildDirectoryTree(input)
-
 			if err != nil {
 				log.Fatalf("Error parsing layout: %v", err)
 			}
@@ -88,6 +135,8 @@ func main() {
 	rootCmd.Flags().StringVarP(&basePath, "output", "o", ".",
 		"Base path where the directories will be created",
 	)
+	rootCmd.Flags().BoolVarP(&debugTokens, "debug-tokens", "t", false, "Enable tokenization debugging")
+	rootCmd.Flags().BoolVarP(&debugParsing, "debug-parsing", "p", false, "Enable parser debugging")
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
@@ -108,26 +157,78 @@ func ParseAndBuildDirectoryTree(input string) (*DirectoryTree, error) {
 	return tree, nil
 }
 
-// expandLevel returns 1 or more DirectoryTree nodes for "Name(:Count)?"
-func expandLevel(l *Level) []*DirectoryTree {
-	if l.Count != nil {
-		c, err := strconv.Atoi(*l.Count)
+func debugLexer(input string) {
+	lex, _ := layoutLexer.LexString("", input)
+	fmt.Println("Lexer Debugging Output:")
+	for {
+		token, err := lex.Next()
 		if err != nil {
-			log.Fatalf("Invalid count in level %q: %v", l.Name, err)
+			if err.Error() == "EOF" {
+				break
+			}
+			log.Fatalf("Lexer error: %v", err)
 		}
+		fmt.Printf("Token: %-10s Value: %q\n", token.Type, token.Value)
+	}
+	fmt.Println()
+}
+
+func debugParser(input string) {
+	layout, err := LayoutParser.ParseString("", input)
+	if err != nil {
+		log.Fatalf("Parser error: %v", err)
+	}
+
+	fmt.Println("Parser Debugging Output:")
+	prettyPrintLayout(layout, "")
+}
+
+func expandLevel(l *Level) []*DirectoryTree {
+	// Concatenate letters to form the full name
+	name := strings.Join(l.Name, "")
+
+	if l.Count != nil {
+		count := *l.Count
 		var nodes []*DirectoryTree
-		for i := 1; i <= c; i++ {
-			nodes = append(nodes, &DirectoryTree{
-				Name:     fmt.Sprintf("%s %d", l.Name, i),
-				Children: nil,
-			})
+
+		// Handle letter ranges (e.g., "a-f")
+		if len(count) == 1 && count[0] >= 'a' && count[0] <= 'z' {
+			for char := 'a'; char <= rune(count[0]); char++ {
+				nodes = append(nodes, &DirectoryTree{
+					Name:     fmt.Sprintf("%s %c", name, char),
+					Children: nil,
+				})
+			}
+			return nodes
 		}
-		return nodes
+
+		// handle letter ranges (e.g., "A-F")
+		if len(count) == 1 && count[0] >= 'A' && count[0] <= 'Z' {
+			for char := 'A'; char <= rune(count[0]); char++ {
+				nodes = append(nodes, &DirectoryTree{
+					Name:     fmt.Sprintf("%s %c", name, char),
+					Children: nil,
+				})
+			}
+		}
+
+		// Handle numeric ranges
+		if c, err := strconv.Atoi(count); err == nil {
+			for i := 1; i <= c; i++ {
+				nodes = append(nodes, &DirectoryTree{
+					Name:     fmt.Sprintf("%s %d", name, i),
+					Children: nil,
+				})
+			}
+			return nodes
+		}
+
+		log.Fatalf("Invalid count in level %q: %v", name, count)
 	}
 
 	// If no count, just a single directory
 	return []*DirectoryTree{{
-		Name:     l.Name,
+		Name:     name,
 		Children: nil,
 	}}
 }
